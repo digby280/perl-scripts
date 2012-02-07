@@ -31,29 +31,29 @@ sub printHeader
     my $seq          = ChangeByteOrder substr($bytes, 10, 8);
     
     my $origMsgCount = ChangeByteOrder substr($bytes, 18, 2);
-              
-    my $dropcount    = ChangeByteOrder substr($bytes, 20, 4);
     
-    my $lastseq      = ChangeByteOrder substr($bytes, 24, 8);
+    my $msgCount     = substr($bytes, 20, 1);
     
-    my $msgCount     = ChangeByteOrder substr($bytes, 32, 2);
+    my $dropcount    = ChangeByteOrder (substr($bytes, 21, 3) . chr(0));
+    
+    my $expected     = ChangeByteOrder substr($bytes, 24, 8);
     
     print "\nMoldUDP Packet Header\n";
     print "-----------------\n";
     printf("Session:      %s\n", $session);
     printf("Sequence:     %d\n", unpack "Q", $seq);
     printf("OrigMsgCount: %d\n", unpack "S", $origMsgCount);
-       
+    
+    printf("MsgCount:     %d\n", ord $msgCount);
     printf("DropCount:    %d\n", unpack "I", $dropcount);
-    printf("LastSeq:      %d\n", unpack "Q", $lastseq);
-    printf("MsgCount:     %d\n", unpack "S", $msgCount);
+    printf("Expected:     %llu\n", unpack "Q", $expected);
 }
 
 sub getHeader
 {
     my ( $bytes ) = @_;
     
-    my $headerSize = 8 + 4 + 2 + 20;
+    my $headerSize = 8 + 4 + 20;
     
     return substr($bytes, -$headerSize);
 }

@@ -49,11 +49,12 @@ sub printHeader
 sub printPayload
 {
     my ( $bytes ) = @_;
-    my $headerSize = 16;
-    my $msgtype = ChangeByteOrder substr($bytes, 2, 2);   
-    my $numBodies = ord substr($bytes, 14, 1);
+    my $headerSize = 20;
     
     $bytes = substr($bytes, $headerSize);
+    
+    my $msgtype = ChangeByteOrder substr($bytes, 2, 2);   
+    my $numBodies = ord substr($bytes, 14, 1);
 
     switch ( $msgtype )
     {
@@ -148,21 +149,24 @@ sub dumpHex
 
     if ( $i % 16 != 0 )
     {
-        foreach ( ($i % 16) .. 15 )
+        my $ycord = ($i % 16);
+        foreach ( $ycord .. 15 )
         {
             print "   ";
             
-            if ( $i % 4 == 0 )
+            if ( ($_ + 1) % 4 == 0 )
             {
                 print " ";
             }
         }
         
-        print "  " . $chars;
+        print " " . $chars;
     }
 
     print "\n\n";
 }
+
+my $count = 0;
 
 sub processpacket
 {
@@ -175,11 +179,14 @@ sub processpacket
     
     my $udp_obj = NetPacket::UDP->decode($ip_obj->{data});
     
-    print "\nLength: " . length($udp_obj->{data}) . "\n";
+    print "\nMessage: " . $count . "\n";
+    print "Length: " . length($udp_obj->{data}) . "\n";
     printHeader($udp_obj->{data});
     printPayload($udp_obj->{data});
     print "\n";
     dumpHex $udp_obj->{data};
+    
+    $count++;
 }
 
 foreach (@ARGV)

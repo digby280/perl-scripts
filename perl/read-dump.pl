@@ -170,17 +170,18 @@ sub dumpHex
 
     if ( $i % 16 != 0 )
     {
-        foreach ( ($i % 16) .. 15 )
+        my $ycord = ($i % 16);
+        foreach ( $ycord .. 15 )
         {
             print "   ";
             
-            if ( $i % 4 == 0 )
+            if ( ($_ + 1) % 4 == 0 )
             {
                 print " ";
             }
         }
         
-        print "  " . $chars;
+        print " " . $chars;
     }
 
     print "\n\n";
