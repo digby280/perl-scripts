@@ -182,7 +182,7 @@ sub processpacket
     print "\nMessage: " . $count . "\n";
     print "Length: " . length($udp_obj->{data}) . "\n";
     printHeader($udp_obj->{data});
-    printPayload($udp_obj->{data});
+    #printPayload($udp_obj->{data});
     print "\n";
     dumpHex $udp_obj->{data};
     

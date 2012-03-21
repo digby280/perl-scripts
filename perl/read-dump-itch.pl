@@ -34,7 +34,7 @@ sub printHeader
     
     my $msgCount     = substr($bytes, 20, 1);
     
-    my $dropcount    = ChangeByteOrder (substr($bytes, 21, 3) . chr(0));
+    my $dropcount    = ChangeByteOrder (chr(0) . substr($bytes, 21, 3));
     
     my $expected     = ChangeByteOrder substr($bytes, 24, 8);
     
