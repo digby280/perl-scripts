@@ -9,6 +9,8 @@ use Switch;
 use Getopt::Long;
 use warnings;
 
+my $verbose = 0;
+
 sub compareHeader
 {
     my ($orig, $new) = @_;
@@ -101,7 +103,7 @@ sub comparePayload
         
         if ( length($dumpRemaining) != 0 )
         {
-            print 'Unmatched messages in dump\n';
+            print "Unmatched messages in dump\n";
             
             return 0;
         }
@@ -159,13 +161,10 @@ my $dumpHeader = "";
 my $dumpMessages = "";
 my $dumpPacketSeq = 0;
 my $nofiltering = 0;
-    
-sub processpacket
+
+sub readFiltered
 {
-    my ($user_data, $header, $packet) = @_;
-    my $pcapHeader = "";
-    my $pcapMessages = "";
-    my $pcapPacketSequence = 0;
+    my ($count) = @_;
     
     if ( $readNextDumpPacket )
     {
@@ -197,6 +196,48 @@ sub processpacket
         
         $readNextDumpPacket = 0;
     }
+}
+
+sub comparePacket
+{
+    my ($origHeader, $origMessages, $count) = @_;
+    
+    my $origSequence = getSequence($origHeader);
+    
+    if ( $origSequence == $dumpPacketSeq )
+    {
+        $readNextDumpPacket = 1;
+        
+        if ( compareHeader($origHeader, $dumpHeader) == 0 )
+        {
+            die 'Packet headers do not match for packet ' . $count . ' (' . $dumpCount . ')';
+        }
+        
+        if ( $nofiltering )
+        {
+            if ( $origMessages ne $dumpMessages )
+            {
+                die 'Messages for packet ' . $count . ' (' . $dumpCount . ') do not match';
+            }
+        }
+        elsif ( comparePayload($origMessages, $dumpMessages) == 0 )
+        {
+            die 'Messages for packet ' . $count . ' (' . $dumpCount . ') do not match';
+        }
+    }
+    elsif ( $nofiltering )
+    {
+        die 'Sequence numbers for packet ' . $count . ' (' . $dumpCount . ') do not match ' . $origSequence . ':' . $dumpPacketSeq;
+    }
+}
+
+sub processpacket
+{
+    my ($user_data, $header, $packet) = @_;
+    my $pcapHeader = "";
+    my $pcapMessages = "";
+    
+    readFiltered($count);
     
     #   Strip ethernet encapsulation of captured packet 
     my $ether_data = NetPacket::Ethernet::strip($packet);
@@ -205,35 +246,9 @@ sub processpacket
     
     $pcapHeader = getHeaderFromPcap($udp_obj->{data});
     
-    $pcapPacketSequence = getSequence($pcapHeader);
+    $pcapMessages = getMessagesFromPcap($udp_obj->{data});
     
-    if ( $pcapPacketSequence == $dumpPacketSeq )
-    {
-        $readNextDumpPacket = 1;
-        
-        if ( compareHeader($pcapHeader, $dumpHeader) == 0 )
-        {
-            die 'Packet headers do not match for packet ' . $count . ' (' . $dumpCount . ')';
-        }
-        
-        $pcapMessages = getMessagesFromPcap($udp_obj->{data});
-        
-        if ( $nofiltering )
-        {
-            if ( $pcapMessages ne $dumpMessages )
-            {
-                die 'Messages for packet ' . $count . ' (' . $dumpCount . ') do not match';
-            }
-        }
-        elsif ( comparePayload($pcapMessages, $dumpMessages) == 0 )
-        {
-            die 'Messages for packet ' . $count . ' (' . $dumpCount . ') do not match';
-        }
-    }
-    elsif ( $nofiltering )
-    {
-        die 'Sequence numbers for packet ' . $count . ' (' . $dumpCount . ') do not match';
-    }
+    comparePacket($pcapHeader, $pcapMessages, $count);
    
     $count++;
 }
@@ -242,7 +257,10 @@ my $orig = "";
 my $filtered = "";
 
 Getopt::Long::Configure ('bundling');
-GetOptions ('o|orig=s' => \$orig, 'f|filtered=s' => \$filtered, 'n|no-filtering' => \$nofiltering);
+GetOptions ('o|orig=s' => \$orig, 
+            'f|filtered=s' => \$filtered,
+            'n|no-filtering' => \$nofiltering,
+            'v|verbose' => \$verbose);
 
 if ( $orig eq "" or $filtered eq "" )
 {
@@ -254,15 +272,20 @@ if ( substr($filtered, -4) eq ".pcap" )
     die 'filtered file must be a dump file';
 }
 
+open(FILE, "<$filtered") or die "cannot open dump file " . $filtered . ": $!";
+
+binmode(FILE);
+
 if ( $orig eq "-" or substr($orig, -4) eq ".pcap" )
 {
     my $object;
     my $err;
-    
-    open(FILE, "<$filtered") or die "cannot open dump file " . $filtered . ": $!";
 
-    binmode(FILE);
-    
+    if ( $verbose )
+    {
+        print 'Comparing pcap file ' . $orig . ' with dump file ' . $filtered . "\n";
+    }
+            
     $object = Net::Pcap::pcap_open_offline($orig, \$err);
 
     unless (defined $object)
@@ -280,13 +303,51 @@ if ( $orig eq "-" or substr($orig, -4) eq ".pcap" )
     {
         die 'The filtered file has not been fully processed!';
     }
-    
-    close(FILE);
 }
 else
 {
-    die 'comparing dump against dump is not currently supported ' . $orig;
+    if ( $verbose )
+    {
+        print 'Comparing dump file ' . $orig . ' with dump file ' . $filtered . "\n";
+    }
+    
+    open(ORIGFILE, "<$orig") or die "cannot open dump file " . $orig . ": $!";
+
+    binmode(ORIGFILE);
+    
+    my $count = 0;
+    my $origbuffer = "";
+
+    while (read(ORIGFILE, $origbuffer, 2) != 0)
+    {
+        my $len = 0;
+        my $mid = "";
+        my $origPayload = "";
+        my $origHeader = "";
+        my $origMessages = "";
+        
+        $len = unpack ( "S", $origbuffer );
+              
+        read(ORIGFILE, $mid, 1);
+                
+        read(ORIGFILE, $origPayload, $len);
+        
+        readFiltered($count);
+        
+        $origHeader = getHeaderFromDump($origPayload);
+    
+        $origMessages = getMessagesFromDump($origPayload);
+        
+        comparePacket($origHeader, $origMessages, $count);
+        
+        $count++;
+    }
+    
+    close(ORIGFILE);
+    
+    print 'Finished comparing. orig = ' . $count . ', dump = (' . $dumpCount . ")\n";
 }
 
+close(FILE);
 
 
