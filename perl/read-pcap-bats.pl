@@ -42,13 +42,13 @@ sub printHeader
     printf("Length:      %d\n", unpack "S", $length);
     printf("Count:       %d\n", ord($count));
     printf("Unit:        %d\n", ord($unit));
-    printf("Sequence:    %d\n", unpack "L", $seq);
+    printf("Sequence:    %u\n", unpack "L", $seq);
 }
 
 sub printPayload
 {
     my ( $bytes ) = @_;
-    my $headerSize = 20;
+    my $headerSize = 8;
     
     $bytes = substr($bytes, $headerSize);
     

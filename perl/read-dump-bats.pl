@@ -31,7 +31,7 @@ sub printHeader
     my $seq       = substr($bytes, 4, 4);
     my $msgCount  = substr($bytes, 8, 1);
     my $dropcount = ChangeByteOrder (chr(0) . substr($bytes, 9, 3));
-    my $expected  = ChangeByteOrder substr($bytes, 12, 8);
+    my $expected  = ChangeByteOrder substr($bytes, 12, 4);
     
     print "\nBATS Packet Header\n";
     print "-----------------\n";
@@ -40,15 +40,15 @@ sub printHeader
     printf("Unit:        %d\n", ord($unit));
     printf("Sequence:    %d\n", unpack "L", $seq);
     printf("NewCount:    %d\n", ord $msgCount);
-    printf("DropCount:   %d\n", unpack "I", $dropcount);
-    printf("Expected:    %llu\n", unpack "Q", $expected);
+    printf("DropCount:   %u\n", unpack "L", $dropcount);
+    printf("Expected:    %u\n", unpack "L", $expected);
 }
 
 sub getHeader
 {
     my ( $bytes ) = @_;
     
-    my $headerSize = 8 + 4 + 20;
+    my $headerSize = 16;
     
     return substr($bytes, -$headerSize);
 }
