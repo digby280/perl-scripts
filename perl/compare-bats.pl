@@ -10,20 +10,24 @@ use Getopt::Long;
 use warnings;
 
 my $verbose = 0;
+my $nofiltering = 0;
+my %messageTypes = ();
+my $unit = -1;
 
 sub compareHeader
 {
     my ($orig, $new) = @_;
     
-    if ( length($orig) == length($new) )
+    if ( $nofiltering && length($orig) == length($new) )
     {
         return ($orig eq $new);
     }
     else
     {
         my @newArray = split(//, $new);
+        
         # assume the original is shorter
-        foreach(split(//, $orig))
+        foreach(split(//, substr($orig, 0, 8)))
         {
             if (ord($_) != ord($newArray[0]) )
             {
@@ -68,45 +72,75 @@ sub getMessageLength
     return ord(substr($buf, 0, 1));
 }
 
-sub comparePayload
+sub getMessageType
 {
-    my ($orig, $new) = @_;
+    my ($buf) = @_;
     
-    if ( length($orig) == length($new) )
+    return substr($buf, 1, 1);
+}
+
+sub logMessage
+{
+    my ($type) = @_;
+    
+    if ( ! exists($messageTypes{$type}) )
     {
-        return ($orig eq $new);
+        $messageTypes{$type} = 1;
     }
     else
     {
-        my $origRemaining = $orig;
-        my $dumpRemaining = $new;
-        
-        my $dumpMessage = substr($dumpRemaining, 0, getMessageLength($dumpRemaining));
-        
-        while ( length($origRemaining) != 0 )
+        $messageTypes{$type}++;
+    }
+}
+
+sub comparePayload
+{
+    my ($orig, $new, $newCount) = @_;
+    
+    my $origRemaining = $orig;
+    my $dumpRemaining = $new;
+    my $messagesInDump = 0;
+    
+    my $dumpMessage = substr($dumpRemaining, 0, getMessageLength($dumpRemaining));
+    
+    while ( length($origRemaining) != 0 )
+    {
+        if ( getMessageLength($origRemaining) == 0 )
         {
-            if ( getMessageLength($origRemaining) == 0 )
-            {
-                die 'Invalid length found in original message';
-            }
-            
-            my $origMessage = substr($origRemaining, 0, getMessageLength($origRemaining));
-            
-            if ( compareMessages($origMessage, $dumpMessage) )
-            {
-                $dumpRemaining = substr($dumpRemaining, getMessageLength($dumpRemaining));
-                $dumpMessage = substr($dumpRemaining, 0, getMessageLength($dumpRemaining));
-            }
-            
-            $origRemaining = substr($origRemaining, getMessageLength($origRemaining));
+            die 'Invalid length found in original message';
         }
         
-        if ( length($dumpRemaining) != 0 )
+        my $origMessage = substr($origRemaining, 0, getMessageLength($origRemaining));
+        
+        if ( compareMessages($origMessage, $dumpMessage) )
         {
-            print "Unmatched messages in dump\n";
+            if ( getMessageLength($dumpRemaining) > length($dumpRemaining) )
+            {
+                return 0;
+            }
             
-            return 0;
+            logMessage(getMessageType($dumpMessage));
+            $dumpRemaining = substr($dumpRemaining, getMessageLength($dumpRemaining));
+            $dumpMessage = substr($dumpRemaining, 0, getMessageLength($dumpRemaining));
+            
+            $messagesInDump++;
         }
+        
+        $origRemaining = substr($origRemaining, getMessageLength($origRemaining));
+    }
+    
+    if ( length($dumpRemaining) != 0 )
+    {
+        print "Unmatched messages in dump\n";
+        
+        return 0;
+    }
+    
+    if ( $messagesInDump != $newCount )
+    {
+        printf "The new count was not set correctly expected %d but found %d messages!\n", $newCount, $messagesInDump;
+        
+        return 0;
     }
     
     return 1;
@@ -151,6 +185,20 @@ sub getSequence
     return unpack "L", $seq;
 }
 
+sub getNewCount
+{
+    my ( $head ) = @_;
+    
+    return ord(substr($head, 8, 1));
+}
+
+sub getUnit
+{
+    my ($head) = @_;
+    
+    return ord(substr($head, 3, 1));
+}
+
 my $count = 0;
 my $dumpCount = -1;
 my $buffer = "";
@@ -160,7 +208,6 @@ my $payload = "";
 my $dumpHeader = "";
 my $dumpMessages = "";
 my $dumpPacketSeq = 0;
-my $nofiltering = 0;
 
 sub readFiltered
 {
@@ -204,30 +251,35 @@ sub comparePacket
     
     my $origSequence = getSequence($origHeader);
     
-    if ( $origSequence == $dumpPacketSeq )
+    if ( $unit == -1 || $unit == getUnit($origHeader) )
     {
-        $readNextDumpPacket = 1;
-        
-        if ( compareHeader($origHeader, $dumpHeader) == 0 )
+        if ( $origSequence == $dumpPacketSeq )
         {
-            die 'Packet headers do not match for packet ' . $count . ' (' . $dumpCount . ')';
-        }
-        
-        if ( $nofiltering )
-        {
-            if ( $origMessages ne $dumpMessages )
+            my $newCount = getNewCount($dumpHeader);
+            
+            $readNextDumpPacket = 1;
+            
+            if ( compareHeader($origHeader, $dumpHeader) == 0 )
             {
-                die 'Messages for packet ' . $count . ' (' . $dumpCount . ') do not match';
+                die 'Packet headers do not match for packet ' . $count . ' (' . $dumpCount . ')';
+            }
+            
+            if ( $nofiltering )
+            {
+                if ( $origMessages ne $dumpMessages )
+                {
+                    die 'Messages for packet ' . $count . ' (' . $dumpCount . ') do not match';
+                }
+            }
+            elsif ( comparePayload($origMessages, $dumpMessages, $newCount) == 0 )
+            {           
+                die 'Messages for packet ' . $count . ' (' . $dumpCount . ') do not match or original contained a corrupt packet';
             }
         }
-        elsif ( comparePayload($origMessages, $dumpMessages) == 0 )
+        elsif ( $nofiltering )
         {
-            die 'Messages for packet ' . $count . ' (' . $dumpCount . ') do not match';
+            die 'Sequence numbers for packet ' . $count . ' (' . $dumpCount . ') do not match ' . $origSequence . ':' . $dumpPacketSeq;
         }
-    }
-    elsif ( $nofiltering )
-    {
-        die 'Sequence numbers for packet ' . $count . ' (' . $dumpCount . ') do not match ' . $origSequence . ':' . $dumpPacketSeq;
     }
 }
 
@@ -260,7 +312,8 @@ Getopt::Long::Configure ('bundling');
 GetOptions ('o|orig=s' => \$orig, 
             'f|filtered=s' => \$filtered,
             'n|no-filtering' => \$nofiltering,
-            'v|verbose' => \$verbose);
+            'v|verbose' => \$verbose,
+            'u|unit=s' => \$unit);
 
 if ( $orig eq "" or $filtered eq "" )
 {
@@ -345,9 +398,20 @@ else
     
     close(ORIGFILE);
     
-    print 'Finished comparing. orig = ' . $count . ', dump = (' . $dumpCount . ")\n";
+    print 'Finished comparing. orig = ' . $count . ', dump = (' . ($dumpCount+1) . ")\n";
 }
 
 close(FILE);
+
+if ( $verbose )
+{
+    my $key;
+    my $value;
+    
+    while (($key, $value) = each %messageTypes)
+    {
+        printf "%#-8x = %16d\n", ord($key), $messageTypes{$key};
+    }
+}
 
 
